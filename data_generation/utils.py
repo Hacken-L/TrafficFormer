@@ -1,5 +1,6 @@
 import os,random,json,csv
 import ipaddress,pickle
+import shlex
 
 # generate random ipv4 address
 def random_ipv4():
@@ -30,23 +31,28 @@ def convert_pcapng_2_pcap(pcapng_path, pcapng_file, output_path):
 
 def split_cap(pcap_split_path, pcap_file_path, pcap_name, pcap_label='', split_way = 'bidirection'):
     # pcap_split_path + "splitcap/" + pcap_label + "/" + pcap_name is output
-    # pcap_file_path+pcap_name is input
-    if not os.path.exists(pcap_split_path + "/splitcap"):
-        os.mkdir(pcap_split_path + "/splitcap")
+    # input pcap: must use os.path.join — string concat breaks when pcap_file_path has no trailing /
+    splitcap_root = os.path.join(pcap_split_path, "splitcap")
+    if not os.path.exists(splitcap_root):
+        os.mkdir(splitcap_root)
     if pcap_label != '':
-        if not os.path.exists(pcap_split_path + "splitcap/" + pcap_label):
-            os.mkdir(pcap_split_path + "splitcap/" + pcap_label)
-        # if not os.path.exists(pcap_split_path + "splitcap/" + pcap_label + "/" + pcap_name):
-        #     os.mkdir(pcap_split_path + "splitcap/" + pcap_label + "/" + pcap_name)
-        output_path = pcap_split_path + "splitcap/" + pcap_label #+ "/" + pcap_name
+        if not os.path.exists(os.path.join(splitcap_root, pcap_label)):
+            os.mkdir(os.path.join(splitcap_root, pcap_label))
+        output_path = os.path.join(splitcap_root, pcap_label)
     else:
-        if not os.path.exists(pcap_split_path + "splitcap/" + pcap_name):
-            os.mkdir(pcap_split_path + "splitcap/" + pcap_name)
-        output_path = pcap_split_path + "splitcap/" + pcap_name
+        output_path = os.path.join(splitcap_root, pcap_name)
+        if not os.path.exists(output_path):
+            os.mkdir(output_path)
     split_way = "session" if split_way=='bidirection' else "flow"
-    print(pcap_file_path+pcap_name,output_path)
-    cmd = f"mono ./SplitCap.exe -r {pcap_file_path+pcap_name} -s {split_way} -o {output_path}"
-    #print(cmd)
+    input_pcap = os.path.join(pcap_file_path, pcap_name)
+    splitcap_exe = os.path.join(os.path.dirname(os.path.abspath(__file__)), "SplitCap.exe")
+    print(input_pcap, output_path)
+    cmd = "mono {} -r {} -s {} -o {}".format(
+        shlex.quote(splitcap_exe),
+        shlex.quote(input_pcap),
+        split_way,
+        shlex.quote(output_path),
+    )
     os.system(cmd)
     return output_path
 

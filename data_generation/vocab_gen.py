@@ -3,7 +3,7 @@ from tokenizers import Tokenizer, models, pre_tokenizers, decoders, trainers, pr
 import json
 import os
 
-def build_BPE(corpora_path):
+def build_BPE(corpora_path, tokenizer_json_path="wordpiece.tokenizer.json"):
     # generate source dictionary,0-65535 
     num_count = 65536
     not_change_string_count = 5
@@ -22,18 +22,19 @@ def build_BPE(corpora_path):
     # Customize pre-tokenization and decoding
     tokenizer.pre_tokenizer = pre_tokenizers.BertPreTokenizer()
     tokenizer.decoder = decoders.WordPiece()
-    tokenizer.post_processor = processors.BertProcessing(sep=("[SEP]",1),cls=('[CLS]',2))
+    # tokenizers>=0.13: two positional (sep_token, id), (cls_token, id) — no sep=/cls= kwargs
+    tokenizer.post_processor = processors.BertProcessing(("[SEP]", 1), ("[CLS]", 2))
 
     # And then train
     trainer = trainers.WordPieceTrainer(vocab_size=65536, min_frequency=2)
     tokenizer.train([corpora_path, corpora_path], trainer=trainer)
 
     # And Save it
-    tokenizer.save("wordpiece.tokenizer.json", pretty=True)
+    tokenizer.save(tokenizer_json_path, pretty=True)
     return 0
 
-def build_vocab(vocab_path):
-    json_file = open("wordpiece.tokenizer.json",'r')
+def build_vocab(vocab_path, tokenizer_json_path="wordpiece.tokenizer.json"):
+    json_file = open(tokenizer_json_path, "r")
     json_content = json_file.read()
     json_file.close()
     vocab_json = json.loads(json_content)

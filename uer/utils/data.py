@@ -150,19 +150,27 @@ def get_span_len(max_span_len, p):
     return current_span_len
 
 
+def dataset_tmp_file_path(dataset_path, proc_id):
+    """Per-worker pickle shard next to the final dataset (replaces hardcoded ET-BERT path)."""
+    d = os.path.dirname(os.path.abspath(dataset_path))
+    return os.path.join(d, "dataset-tmp-" + str(proc_id) + ".pt")
+
+
 def merge_dataset(dataset_path, workers_num):
     # Merge datasets.
+    dataset_path = os.path.abspath(dataset_path)
     dataset_writer = open(dataset_path, "wb")
     for i in range(workers_num):
-        tmp_dataset_reader = open("/mnt/data/zgm/ET-BERT/datasets/temp/dataset-tmp-" + str(i) + ".pt", "rb")
+        tmp_path = dataset_tmp_file_path(dataset_path, i)
+        tmp_dataset_reader = open(tmp_path, "rb")
         while True:
-            tmp_data = tmp_dataset_reader.read(2^20) 
+            tmp_data = tmp_dataset_reader.read(1 << 20)
             if tmp_data:
                 dataset_writer.write(tmp_data)
             else:
                 break
         tmp_dataset_reader.close()
-        os.remove("/mnt/data/zgm/ET-BERT/datasets/temp/dataset-tmp-" + str(i) + ".pt")
+        os.remove(tmp_path)
     dataset_writer.close()
 
 
@@ -313,7 +321,7 @@ class BertDataset(Dataset):
         docs_buffer = []
         document = []
         pos = 0
-        dataset_writer = open("/mnt/data/zgm/ET-BERT/datasets/temp/dataset-tmp-" + str(proc_id) + ".pt", "wb")
+        dataset_writer = open(dataset_tmp_file_path(self.dataset_path, proc_id), "wb")
         with open(self.corpus_path, mode="r", encoding="utf-8") as f:
             while pos < start:
                 f.readline()
@@ -457,7 +465,7 @@ class BertFlowDataset(Dataset):
         docs_buffer = []
         document = []
         pos = 0
-        dataset_writer = open("/mnt/data/zgm/ET-BERT/datasets/temp/dataset-tmp-" + str(proc_id) + ".pt", "wb")
+        dataset_writer = open(dataset_tmp_file_path(self.dataset_path, proc_id), "wb")
         with open(self.corpus_path, mode="r", encoding="utf-8") as f:
             try:
                 #with open(self.corpus_path[:-4]+"_extra.txt", mode="r", encoding="utf-8") as fe:
@@ -770,7 +778,7 @@ class MlmDataset(Dataset):
     def worker(self, proc_id, start, end):
         print("Worker %d is building dataset ... " % proc_id)
         set_seed(self.seed)
-        dataset_writer = open("dataset-tmp-" + str(proc_id) + ".pt", "wb")
+        dataset_writer = open(dataset_tmp_file_path(self.dataset_path, proc_id), "wb")
         docs_buffer = []
         for _ in range(self.dup_factor):
             pos = 0
@@ -912,7 +920,7 @@ class AlbertDataset(Dataset):
         print("Worker %d is building dataset ... " % proc_id)
         set_seed(self.seed)
         document = []
-        dataset_writer = open("dataset-tmp-" + str(proc_id) + ".pt", "wb")
+        dataset_writer = open(dataset_tmp_file_path(self.dataset_path, proc_id), "wb")
         for _ in range(self.dup_factor):
             pos = 0
             with open(self.corpus_path, mode="r", encoding="utf-8") as f:
@@ -1016,7 +1024,7 @@ class LmDataset(Dataset):
     def worker(self, proc_id, start, end):
         print("Worker %d is building dataset ... " % proc_id)
         set_seed(self.seed)
-        dataset_writer = open("dataset-tmp-" + str(proc_id) + ".pt", "wb")
+        dataset_writer = open(dataset_tmp_file_path(self.dataset_path, proc_id), "wb")
         pos = 0
         with open(self.corpus_path, mode="r", encoding="utf-8") as f:
             while pos < start:
@@ -1081,7 +1089,7 @@ class BilmDataset(Dataset):
     def worker(self, proc_id, start, end):
         print("Worker %d is building dataset ... " % proc_id)
         set_seed(self.seed)
-        dataset_writer = open("dataset-tmp-" + str(proc_id) + ".pt", "wb")
+        dataset_writer = open(dataset_tmp_file_path(self.dataset_path, proc_id), "wb")
         pos = 0
         with open(self.corpus_path, mode="r", encoding="utf-8") as f:
             while pos < start:
@@ -1160,7 +1168,7 @@ class Seq2seqDataset(Dataset):
     def worker(self, proc_id, start, end):
         print("Worker %d is building dataset ... " % proc_id)
         set_seed(self.seed)
-        dataset_writer = open("dataset-tmp-" + str(proc_id) + ".pt", "wb")
+        dataset_writer = open(dataset_tmp_file_path(self.dataset_path, proc_id), "wb")
         pos = 0
         with open(self.corpus_path, mode="r", encoding="utf-8") as f:
             while pos < start:
@@ -1310,7 +1318,7 @@ class ClsDataset(Dataset):
     def worker(self, proc_id, start, end):
         print("Worker %d is building dataset ... " % proc_id)
         set_seed(self.seed)
-        f_write = open("dataset-tmp-" + str(proc_id) + ".pt", "wb")
+        f_write = open(dataset_tmp_file_path(self.dataset_path, proc_id), "wb")
         pos = 0
         with open(self.corpus_path, mode="r", encoding="utf-8") as f:
             while pos < start:
@@ -1396,7 +1404,7 @@ class PrefixlmDataset(Dataset):
     def worker(self, proc_id, start, end):
         print("Worker %d is building dataset ... " % proc_id)
         set_seed(self.seed)
-        dataset_writer = open("dataset-tmp-" + str(proc_id) + ".pt", "wb")
+        dataset_writer = open(dataset_tmp_file_path(self.dataset_path, proc_id), "wb")
         pos = 0
         with open(self.corpus_path, mode="r", encoding="utf-8") as f:
             while pos < start:

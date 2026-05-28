@@ -254,6 +254,14 @@ def get_bursts(label_pcap, select_packet_len, corpora_path, start_index = 0, enh
                                 #burst_txt += bigram_generation(string_txt, packet_len=len(string_txt))
                                 burst_txt += '\n'
                             burst_txt += '\n'
+                            burst_data_string = ''
+                # Single-packet (or chunk) flows only take the packet_index==0 branch; nothing flushes inside the loop.
+                if burst_data_string:
+                    length = len(burst_data_string)
+                    for string_txt in cut(burst_data_string, int(length / 2)):
+                        burst_txt += string_txt
+                        burst_txt += '\n'
+                    burst_txt += '\n'
         if is_multi:
             with open(corpora_path+"{}_biburst.txt".format(pid),'a') as f:
                 f.write(burst_txt)
@@ -308,7 +316,8 @@ def merge(path):
     pid_set = set()
     for filename in os.listdir(path):
         pid_set.add(filename.split('_')[0])
-    with open(path[:-1]+"_biburst.txt",'w') as fw1:
+    output_prefix = os.path.normpath(path)
+    with open(output_prefix+"_biburst.txt",'w') as fw1:
        #with open(path[:-1]+"_extra.txt",'w') as fw2:
             for key in pid_set:
                 with open(path + key+"_biburst.txt",'r') as fr:
@@ -341,18 +350,25 @@ def pretrain_dataset_generation(pcapng_path,pcap_output_path,output_split_path,s
                     #print(_parent + file)
                     convert_pcapng_2_pcap(_parent, file, pcap_output_path)
                 else:
-                    shutil.copy(_parent+"/"+file, pcap_output_path+file)
+                    shutil.copy(os.path.join(_parent, file), os.path.join(pcap_output_path, file))
     
-    if not os.path.exists(output_split_path + "splitcap"):
+    splitcap_dir = os.path.join(output_split_path, "splitcap")
+    split_files_count = 0
+    if os.path.exists(splitcap_dir):
+        for _p, _d, files in os.walk(splitcap_dir):
+            split_files_count += len(files)
+
+    # splitcap directory may exist from a failed previous run, but contain no flow files.
+    if (not os.path.exists(splitcap_dir)) or split_files_count == 0:
         print("Begin to split pcap as session flows.")
         for _p,_d,files in os.walk(pcap_output_path):
             for file in files:
-                split_cap(output_split_path,pcap_output_path,file)
+                split_cap(output_split_path, _p, file)
 
     print("Begin to generate burst dataset.")
     if is_multi:
         all_files = []
-        for _p,_d,files in os.walk(output_split_path + "splitcap"):
+        for _p,_d,files in os.walk(splitcap_dir):
             for file in files:
                 all_files.append(_p+"/"+file)
         pbar = tqdm(total=len(all_files))
@@ -362,7 +378,7 @@ def pretrain_dataset_generation(pcapng_path,pcap_output_path,output_split_path,s
         if not os.path.exists(corpora_path):
             os.makedirs(corpora_path)
 
-        pool = mp.Pool(100)
+        pool = mp.Pool(10)
         
         for file in all_files:
             pool.apply_async(get_bursts, (file, select_packet_len, corpora_path, start_index, enhance_factor, True), callback=update)

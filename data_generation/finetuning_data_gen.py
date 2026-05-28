@@ -19,6 +19,8 @@ import string
 from scapy.layers.tls.handshake import TLSClientHello,TLSServerHello
 #from scapy.layers.tls.extensions import TLS_Ext_ServerName
 
+_FEATURE_TEMP_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "temp")
+
 def random_tcp_ts_option(packets):
     src_ts = None
     dst_ts = None
@@ -389,8 +391,9 @@ def process_one_label(session_pcap_path,key,payload_length,payload_packet,sample
             result["direction"]["1"] = feature_data[3]
             result["message_type"]["1"] = feature_data[4]
 
-    with open("/mnt/data/zgm/ET-BERT/fine-tuning/temp/"+key,'wb') as f:
-        pickle.dump(result,f)
+    os.makedirs(_FEATURE_TEMP_DIR, exist_ok=True)
+    with open(os.path.join(_FEATURE_TEMP_DIR, key), "wb") as f:
+        pickle.dump(result, f)
 
 def generation_multiP(pcap_path, samples, dataset_save_path, payload_length = 64, payload_packet = 5, start_index=76):
     # pcap_path: the path of splited pcap. In the pacp path, each dir is one class. In each dir, each pcap is one flow.
@@ -419,7 +422,13 @@ def generation_multiP(pcap_path, samples, dataset_save_path, payload_length = 64
     for key in label_id.keys():
         print(key,label_id[key])
 
+    samples = list(samples)
+    if len(samples) < len(label_name_list):
+        pad = samples[-1] if samples else 100
+        samples.extend([pad] * (len(label_name_list) - len(samples)))
+
     print("\nBegin to generate features.")
+    os.makedirs(_FEATURE_TEMP_DIR, exist_ok=True)
     pbar = tqdm(total=len(session_pcap_path.keys()))
     pbar.set_description('generate features')
     update = lambda *args: pbar.update()
@@ -431,16 +440,25 @@ def generation_multiP(pcap_path, samples, dataset_save_path, payload_length = 64
     pool.close()
     pool.join()
 
-    for key in os.listdir("./temp/"):
-        with open("./temp/"+key,'rb') as f:
+    for key in os.listdir(_FEATURE_TEMP_DIR):
+        if key not in label_id:
+            continue
+        with open(os.path.join(_FEATURE_TEMP_DIR, key), "rb") as f:
             result = pickle.load(f)
         dataset[label_id[key]] = result
-        os.system(f'rm -r {"./temp/"+key}')
+        os.remove(os.path.join(_FEATURE_TEMP_DIR, key))
 
     all_data_number = 0
     for index in range(len(label_name_list)):
-        #print("%s\t%s\t%d"%(label_id[label_name_list[index]], label_name_list[index], dataset[label_id[label_name_list[index]]]["samples"]))
-        all_data_number += dataset[label_id[label_name_list[index]]]["samples"]
+        lid = label_id[label_name_list[index]]
+        if lid not in dataset:
+            raise RuntimeError(
+                "Missing dataset entry for label %r (id=%s). "
+                " Usually workers wrote temp files to a different path than main reads; "
+                "check process_one_label vs generation_multiP temp dir."
+                % (label_name_list[index], lid)
+            )
+        all_data_number += dataset[lid]["samples"]
     print("all\t%d"%(all_data_number))
 
     with open(dataset_save_path + "/dataset.json", "w") as f:
@@ -476,32 +494,36 @@ def convert_splitcap(pcapng_path, pcap_path,pcap_split_path,is_pcap_label=False)
                     output_path = split_cap(pcap_split_path, p + "/", file, pcap_label=dir)
                 else:
                     output_path = split_cap(pcap_split_path, p + "/", file)
+    # split_cap 未执行时（无 pcap / 目录为空）仍可能没有 splitcap；后续 os.walk 需要先存在该目录
+    splitcap_root = os.path.join(pcap_split_path.rstrip(os.sep), "splitcap")
+    os.makedirs(splitcap_root, exist_ok=True)
     # remove small pcap and split again big pcap
-    for p,dd,ff in os.walk(pcap_split_path+"splitcap"):
+    for p,dd,ff in os.walk(splitcap_root):
         for dir in dd:
-            for _,_,ff in os.walk(pcap_split_path+"splitcap" + "/" + dir):
+            for _,_,ff in os.walk(os.path.join(splitcap_root, dir)):
                 for f in ff:
-                    file_size = float(size_format(os.path.getsize(pcap_split_path+"splitcap" + "/" + dir + "/" + f)))
+                    file_size = float(size_format(os.path.getsize(os.path.join(splitcap_root, dir, f))))
                     # 2KB
                     if file_size < 2: #remove small pcap
-                        os.remove(pcap_split_path+"splitcap" + "/" + dir + "/" + f)
+                        os.remove(os.path.join(splitcap_root, dir, f))
                         #print("remove sample: %s for its size is less than 2 KB." % (pcap_split_path+"splitcap" + "/" + dir + "/" + f))
                     if file_size > 10240: #10MB  split again big pcap
                         print("bigger than 10MB")
-                        cmd = "editcap -i 300 {} {}".format(pcap_split_path+"splitcap" + "/" + dir + "/" + f, pcap_split_path+"splitcap" + "/" + dir + "/" + f)
+                        big_path = os.path.join(splitcap_root, dir, f)
+                        cmd = "editcap -i 300 {} {}".format(big_path, big_path)
                         os.system(cmd)
-                        os.system("rm {}".format(pcap_split_path+"splitcap" + "/" + dir + "/" + f))
+                        os.system("rm {}".format(big_path))
                 break
         break
     # remove class that has less flow
     all_flows = []
-    for p,dd,ff in os.walk(pcap_split_path+"splitcap"):
+    for p,dd,ff in os.walk(splitcap_root):
         for dir in dd:
-            for _,_,ff in os.walk(pcap_split_path+"splitcap" + "/" + dir):
+            for _,_,ff in os.walk(os.path.join(splitcap_root, dir)):
                 print(dir,len(ff))
                 if len(ff)<10:
-                    shutil.rmtree(pcap_split_path+"splitcap" + "/" + dir)
-                    print("remove class: %s for its flow size is less than 10." % (pcap_split_path+"splitcap" + "/" + dir))
+                    shutil.rmtree(os.path.join(splitcap_root, dir))
+                    print("remove class: %s for its flow size is less than 10." % (os.path.join(splitcap_root, dir)))
                 else:
                     all_flows.append(len(ff))
         break
@@ -512,8 +534,9 @@ def dataset_extract(dataset_save_path, features):
     print("read dataset from json file.")
     with open(dataset_save_path + "/dataset.json","r") as f:
         dataset = json.load(f)
-    
-    dataset_statistic = [0] * _category
+
+    label_keys = [int(k) for k in dataset.keys()]
+    dataset_statistic = [0] * (max(label_keys) + 1 if label_keys else 0)
 
     data_all = []
     for app_label in dataset.keys():
